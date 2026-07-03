@@ -333,6 +333,24 @@
     .auth-message { font-size: 12px; margin-bottom: 10px; font-weight: bold; text-align: center; }
     .text-error { color: #f44336; }
     .text-success { color: green; }
+
+    /* ФОРУМ */
+    .forum-area {
+        flex-grow: 1;
+        background: white;
+        border: 1px solid #ccc;
+        padding: 20px;
+        box-sizing: border-box;
+        min-height: 400px;
+    }
+    .thread { border-bottom: 1px solid #e0e6ea; padding: 12px 0; }
+    .thread-title { font-size: 16px; font-weight: bold; color: #2b5b84; cursor: pointer; }
+    .thread-meta { font-size: 12px; color: #666; margin-top: 4px; }
+    .thread-body { margin-top: 8px; color: #333; }
+    .comment { border-top: 1px dashed #e6eef6; padding: 8px 0; }
+    .comment-meta { font-size: 12px; color: #666; }
+    .forum-form input, .forum-form textarea { width: 100%; padding: 8px; border: 1px solid #b7c8d6; border-radius: 3px; box-sizing: border-box; font-family: Verdana; }
+    .forum-form button { margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -340,6 +358,7 @@
     <div class="top-bar">
         <div class="top-left-group">
             <span class="site-name click-text" onclick="goHome()">Мойсайтнет</span>
+            <span class="click-text" style="margin-left:12px; font-weight: bold;" onclick="openForum()">Форум</span>
             <div class="status-left">
                 <span class="network-icon"></span> 
                 <span id="live-clock">Загрузка времени...</span>
@@ -450,6 +469,25 @@
                 <hr>
                 <p>Привет, <b id="prof-nick">...</b>!</p>
                 <p>Твой логин (Email): <span id="prof-email"></span></p>
+            </div>
+        </div>
+
+        <!-- ФОРУМ (по умолчанию скрыт) -->
+        <div id="forum-area" class="forum-area" style="display: none;">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin:0;">Форум</h2>
+                <div>
+                    <button class="auth-btn-secondary" onclick="goHome()">Назад</button>
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <div id="forum-create" style="margin-bottom:16px; display:none;" class="forum-form">
+                    <input id="forum-title" placeholder="Заголовок" />
+                    <textarea id="forum-body" rows="5" placeholder="Текст темы" style="margin-top:8px;"></textarea>
+                    <button class="auth-btn-primary" onclick="processForumPost()">Создать тему</button>
+                </div>
+                <div id="forum-list">Загрузка...</div>
+                <div id="forum-thread-view" style="display:none; margin-top:12px;"></div>
             </div>
         </div>
 
@@ -591,6 +629,13 @@
         function goHome() {
             document.getElementById('auth-layout').style.display = 'none';
             document.getElementById('main-layout').style.display = 'flex';
+            // Показываем стандартную разметку
+            const forumArea = document.getElementById('forum-area');
+            if (forumArea) forumArea.style.display = 'none';
+            const sideLeft = document.querySelector('.sidebar-left');
+            const mainCont = document.querySelector('.main-content');
+            if (sideLeft) sideLeft.style.display = '';
+            if (mainCont) mainCont.style.display = '';
             
             // Очищаем поля ввода
             document.getElementById('reg-msg').textContent = '';
@@ -641,6 +686,8 @@
         // Подключаемся только если библиотека успешно загрузилась
         if (window.supabase) {
             const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            // Делаем клиент доступным глобально для нашего кода форума
+            window.db = db;
 
             // Проверка при загрузке
             db.auth.getSession().then(({ data: { session } }) => {
@@ -664,9 +711,14 @@
                     document.getElementById('user-display').textContent = nick;
                     document.getElementById('prof-nick').textContent = nick;
                     document.getElementById('prof-email').textContent = session.user.email;
+                    // Показываем форму создания темы на форуме для авторизованных
+                    const createEl = document.getElementById('forum-create');
+                    if (createEl) createEl.style.display = 'block';
                 } else {
                     document.getElementById('nav-user').style.display = 'none';
                     document.getElementById('nav-guest').style.display = 'flex';
+                    const createEl = document.getElementById('forum-create');
+                    if (createEl) createEl.style.display = 'none';
                     if (document.getElementById('profile-tab').classList.contains('active')) {
                         goHome();
                     }
@@ -740,6 +792,133 @@
             window.doLogOut = async function() {
                 await db.auth.signOut();
             };
+
+            // --- Форум: открытие, загрузка тем, создание тем и комментариев ---
+            window.openForum = function() {
+                const sideLeft = document.querySelector('.sidebar-left');
+                const mainCont = document.querySelector('.main-content');
+                const forumArea = document.getElementById('forum-area');
+                if (sideLeft) sideLeft.style.display = 'none';
+                if (mainCont) mainCont.style.display = 'none';
+                if (forumArea) forumArea.style.display = 'block';
+                // Загружаем список тем
+                loadForum();
+            };
+
+            async function loadForum() {
+                const listEl = document.getElementById('forum-list');
+                if (!listEl) return;
+                listEl.textContent = 'Загрузка...';
+                const { data, error } = await window.db.from('forum_threads').select('id,title,body,author_id,created_at').order('created_at', { ascending: false });
+                if (error) { listEl.textContent = 'Ошибка загрузки форума.'; console.error(error); return; }
+                renderThreads(data || []);
+            }
+
+            function renderThreads(threads) {
+                const el = document.getElementById('forum-list');
+                if (!el) return;
+                if (!threads || threads.length === 0) { el.innerHTML = '<p>Тем пока нет.</p>'; return; }
+                el.innerHTML = '';
+                threads.forEach(t => {
+                    const div = document.createElement('div'); div.className = 'thread';
+                    const title = document.createElement('div'); title.className = 'thread-title'; title.textContent = t.title || '(без названия)'; title.onclick = () => openThread(t.id);
+                    const meta = document.createElement('div'); meta.className = 'thread-meta';
+                    meta.textContent = 'Автор: ' + (t.author_id || 'Неизвестно') + ' | ' + new Date(t.created_at).toLocaleString();
+                    const body = document.createElement('div'); body.className = 'thread-body'; body.textContent = t.body ? (t.body.length > 300 ? t.body.slice(0,300) + '...' : t.body) : '';
+                    div.appendChild(title); div.appendChild(meta); div.appendChild(body);
+                    el.appendChild(div);
+                });
+            }
+
+            async function openThread(id) {
+                const view = document.getElementById('forum-thread-view');
+                const listEl = document.getElementById('forum-list');
+                if (!view || !listEl) return;
+                view.style.display = 'block';
+                view.innerHTML = 'Загрузка...';
+                const { data: thread, error } = await window.db.from('forum_threads').select('*').eq('id', id).maybeSingle();
+                if (error || !thread) { view.textContent = 'Тема не найдена.'; console.error(error); return; }
+                // Автор темы
+                let threadAuthor = 'Пользователь';
+                if (thread.author_id) {
+                    const { data: p } = await window.db.from('profiles').select('nickname').eq('id', thread.author_id).maybeSingle();
+                    if (p && p.nickname) threadAuthor = p.nickname;
+                }
+                view.innerHTML = '<h3>' + escapeHtml(thread.title) + '</h3>' +
+                                 '<div class="thread-meta">Автор: ' + escapeHtml(threadAuthor) + ' | ' + new Date(thread.created_at).toLocaleString() + '</div>' +
+                                 '<div class="thread-body">' + escapeHtml(thread.body) + '</div>';
+
+                // Загружаем комментарии
+                const { data: comments } = await window.db.from('forum_comments').select('*').eq('thread_id', id).order('created_at', { ascending: true });
+                const commentsWrap = document.createElement('div');
+                commentsWrap.style.marginTop = '12px';
+                commentsWrap.innerHTML = '<h4>Комментарии</h4>';
+                if (!comments || comments.length === 0) commentsWrap.innerHTML += '<p>Пока нет комментариев.</p>';
+                else {
+                    for (const c of comments) {
+                        let nick = 'Пользователь';
+                        if (c.author_id) {
+                            const { data: p } = await window.db.from('profiles').select('nickname').eq('id', c.author_id).maybeSingle();
+                            if (p && p.nickname) nick = p.nickname;
+                        }
+                        const cm = document.createElement('div'); cm.className = 'comment';
+                        cm.innerHTML = '<div class="comment-meta">' + escapeHtml(nick) + ' | ' + new Date(c.created_at).toLocaleString() + '</div><div>' + escapeHtml(c.body) + '</div>';
+                        commentsWrap.appendChild(cm);
+                    }
+                }
+                view.appendChild(commentsWrap);
+
+                // Форма комментирования для авторизованных
+                const { data: { session } } = await window.db.auth.getSession();
+                if (session) {
+                    const commentForm = document.createElement('div');
+                    commentForm.style.marginTop = '8px';
+                    commentForm.innerHTML = '<textarea id="comment-body-'+id+'" rows="3" placeholder="Ваш комментарий"></textarea><button class="auth-btn-primary" onclick="processForumComment(\''+id+'\')">Отправить</button>';
+                    view.appendChild(commentForm);
+                } else {
+                    const info = document.createElement('div'); info.style.marginTop = '8px'; info.innerHTML = '<p>Войдите, чтобы оставить комментарий.</p>';
+                    view.appendChild(info);
+                }
+            }
+
+            async function processForumPost() {
+                const title = document.getElementById('forum-title').value.trim();
+                const body = document.getElementById('forum-body').value.trim();
+                const msgEl = document.getElementById('forum-list');
+                if (!title || !body) { if (msgEl) msgEl.textContent = 'Заполните заголовок и текст.'; return; }
+                const { data: { session } } = await window.db.auth.getSession();
+                if (!session) { if (msgEl) msgEl.textContent = 'Требуется вход.'; return; }
+                const { data, error } = await window.db.from('forum_threads').insert([{ title, body, author_id: session.user.id }]).select().maybeSingle();
+                if (error) { if (msgEl) msgEl.textContent = 'Ошибка создания темы.'; console.error(error); return; }
+                // Очистим поля и откроем тему
+                document.getElementById('forum-title').value = '';
+                document.getElementById('forum-body').value = '';
+                await loadForum();
+                if (data && data.id) openThread(data.id);
+            }
+
+            async function processForumComment(threadId) {
+                const textarea = document.getElementById('comment-body-'+threadId);
+                if (!textarea) return;
+                const body = textarea.value.trim();
+                if (!body) return;
+                const { data: { session } } = await window.db.auth.getSession();
+                if (!session) { alert('Требуется вход.'); return; }
+                const { error } = await window.db.from('forum_comments').insert([{ thread_id: threadId, body, author_id: session.user.id }]);
+                if (error) { alert('Ошибка отправки комментария.'); console.error(error); return; }
+                // Перегрузим тему
+                openThread(threadId);
+            }
+
+            function escapeHtml(unsafe) {
+                if (!unsafe && unsafe !== 0) return '';
+                return String(unsafe)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
         }
     } catch(err) {
         console.error("Ошибка Supabase: ", err);
