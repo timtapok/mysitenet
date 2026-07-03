@@ -491,10 +491,10 @@
                         <textarea id="forum-body" rows="5" placeholder="Текст темы"></textarea>
                     </div>
                     <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-                        <button type="button" class="emoji-btn" id="emoji-toggle" onclick="toggleEmojiPicker()">😀</button>
+                        <button type="button" class="emoji-btn" id="emoji-toggle" onclick="window.toggleEmojiPicker()">😀</button>
                         <div id="emoji-picker" class="emoji-picker" aria-hidden="true"></div>
                         <div style="flex:1"></div>
-                        <button class="auth-btn-primary" onclick="processForumPost()">Создать тему</button>
+                        <button class="auth-btn-primary" onclick="window.processForumPost()">Создать тему</button>
                     </div>
                     <div id="forum-status" style="margin-top:8px; font-size:13px; color:#333;"></div>
                 </div>
@@ -817,7 +817,7 @@
                 loadForum();
             };
 
-            async function loadForum() {
+            window.loadForum = async function() {
                 const listEl = document.getElementById('forum-list');
                 if (!listEl) return;
                 listEl.textContent = 'Загрузка...';
@@ -833,7 +833,7 @@
                 el.innerHTML = '';
                 threads.forEach(t => {
                     const div = document.createElement('div'); div.className = 'thread';
-                    const title = document.createElement('div'); title.className = 'thread-title'; title.textContent = t.title || '(без названия)'; title.onclick = () => openThread(t.id);
+                    const title = document.createElement('div'); title.className = 'thread-title'; title.textContent = t.title || '(без названия)'; title.onclick = () => window.openThread(t.id);
                     const meta = document.createElement('div'); meta.className = 'thread-meta';
                     meta.textContent = 'Автор: ' + (t.author_id || 'Неизвестно') + ' | ' + new Date(t.created_at).toLocaleString();
                     const body = document.createElement('div'); body.className = 'thread-body'; body.textContent = t.body ? (t.body.length > 300 ? t.body.slice(0,300) + '...' : t.body) : '';
@@ -842,7 +842,7 @@
                 });
             }
 
-            async function openThread(id) {
+            window.openThread = async function(id) {
                 const view = document.getElementById('forum-thread-view');
                 const listEl = document.getElementById('forum-list');
                 if (!view || !listEl) return;
@@ -893,7 +893,7 @@
                 }
             }
 
-            async function processForumPost() {
+            window.processForumPost = async function() {
                 const statusEl = document.getElementById('forum-status');
                 try {
                     const title = document.getElementById('forum-title').value.trim();
@@ -917,7 +917,7 @@
                 }
             }
 
-            async function processForumComment(threadId) {
+            window.processForumComment = async function(threadId) {
                 const textarea = document.getElementById('comment-body-'+threadId);
                 if (!textarea) return;
                 const body = textarea.value.trim();
@@ -942,7 +942,7 @@
 
             // --- Emoji picker ---
             const EMOJIS = ['😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','😘','😎','🤔','😅','😇','👍','👎','🙌','🎉','🔥','💬','🤖','🧠','🎮'];
-            function toggleEmojiPicker() {
+            window.toggleEmojiPicker = function() {
                 const picker = document.getElementById('emoji-picker');
                 if (!picker) return;
                 if (picker.style.display === 'block') { picker.style.display = 'none'; picker.setAttribute('aria-hidden','true'); }
