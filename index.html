@@ -350,8 +350,18 @@
     .comment { border-top: 1px dashed #e6eef6; padding: 8px 0; }
     .comment-meta { font-size: 12px; color: #666; }
     .forum-form input, .forum-form textarea { width: 100%; padding: 8px; border: 1px solid #b7c8d6; border-radius: 3px; box-sizing: border-box; font-family: Verdana; }
-    .forum-form textarea { resize: none; }
+    .forum-area textarea { resize: none; }
     .forum-form button { margin-top: 8px; }
+    .forum-thread-card { background: #f8fbff; border: 1px solid #cbd8e8; border-radius: 8px; padding: 18px; margin-bottom: 18px; }
+    .forum-thread-card h3 { margin-top: 0; font-size: 20px; }
+    .forum-thread-meta { font-size: 13px; color: #546a7a; margin-bottom: 8px; }
+    .forum-thread-body { color: #2d3748; line-height: 1.6; white-space: pre-wrap; }
+    .forum-thread-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 10px; }
+    .forum-thread-actions .auth-btn-secondary { margin-top: 0; }
+    .forum-comments-list { margin-top: 18px; }
+    .forum-comment { border-top: 1px dashed #e4ecf5; padding: 12px 0; }
+    .forum-comment:first-child { border-top: none; }
+    .forum-comment-meta { font-size: 12px; color: #5f6f7f; margin-bottom: 6px; }
     .emoji-btn { background: transparent; border: 1px solid #b7c8d6; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 16px; }
     .emoji-picker { background: white; border: 1px solid #b7c8d6; padding: 6px; border-radius: 4px; display: none; max-width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
     .emoji-picker button { background: none; border: none; cursor: pointer; font-size: 18px; padding: 4px; }
@@ -821,7 +831,7 @@
                 const listEl = document.getElementById('forum-list');
                 if (!listEl) return;
                 listEl.textContent = 'Загрузка...';
-                const { data, error } = await window.db.from('forum_threads').select('id,title,body,author_id,created_at').order('created_at', { ascending: false });
+                const { data, error } = await window.db.from('forum_threads').select('id,title,body,author_id,created_at,profiles(nickname)').order('created_at', { ascending: false });
                 if (error) { listEl.textContent = 'Ошибка загрузки форума.'; console.error(error); return; }
                 renderThreads(data || []);
             }
@@ -832,10 +842,11 @@
                 if (!threads || threads.length === 0) { el.innerHTML = '<p>Тем пока нет.</p>'; return; }
                 el.innerHTML = '';
                 threads.forEach(t => {
+                    const author = (t.profiles && t.profiles.nickname) ? t.profiles.nickname : t.author_id || 'Неизвестно';
                     const div = document.createElement('div'); div.className = 'thread';
                     const title = document.createElement('div'); title.className = 'thread-title'; title.textContent = t.title || '(без названия)'; title.onclick = () => window.openThread(t.id);
                     const meta = document.createElement('div'); meta.className = 'thread-meta';
-                    meta.textContent = 'Автор: ' + (t.author_id || 'Неизвестно') + ' | ' + new Date(t.created_at).toLocaleString();
+                    meta.textContent = 'Автор: ' + author + ' | ' + new Date(t.created_at).toLocaleString();
                     const body = document.createElement('div'); body.className = 'thread-body'; body.textContent = t.body ? (t.body.length > 300 ? t.body.slice(0,300) + '...' : t.body) : '';
                     div.appendChild(title); div.appendChild(meta); div.appendChild(body);
                     el.appendChild(div);
@@ -846,49 +857,47 @@
                 const view = document.getElementById('forum-thread-view');
                 const listEl = document.getElementById('forum-list');
                 if (!view || !listEl) return;
+                listEl.style.display = 'none';
                 view.style.display = 'block';
-                view.innerHTML = 'Загрузка...';
-                const { data: thread, error } = await window.db.from('forum_threads').select('*').eq('id', id).maybeSingle();
-                if (error || !thread) { view.textContent = 'Тема не найдена.'; console.error(error); return; }
-                // Автор темы
-                let threadAuthor = 'Пользователь';
-                if (thread.author_id) {
-                    const { data: p } = await window.db.from('profiles').select('nickname').eq('id', thread.author_id).maybeSingle();
-                    if (p && p.nickname) threadAuthor = p.nickname;
-                }
-                view.innerHTML = '<h3>' + escapeHtml(thread.title) + '</h3>' +
-                                 '<div class="thread-meta">Автор: ' + escapeHtml(threadAuthor) + ' | ' + new Date(thread.created_at).toLocaleString() + '</div>' +
-                                 '<div class="thread-body">' + escapeHtml(thread.body) + '</div>';
+                view.innerHTML = '<div class="forum-thread-card">Загрузка...</div>';
+                const { data: thread, error } = await window.db.from('forum_threads').select('*,profiles(nickname)').eq('id', id).maybeSingle();
+                if (error || !thread) { view.innerHTML = '<div class="forum-thread-card">Тема не найдена.</div>'; console.error(error); return; }
 
-                // Загружаем комментарии
-                const { data: comments } = await window.db.from('forum_comments').select('*').eq('thread_id', id).order('created_at', { ascending: true });
-                const commentsWrap = document.createElement('div');
-                commentsWrap.style.marginTop = '12px';
-                commentsWrap.innerHTML = '<h4>Комментарии</h4>';
-                if (!comments || comments.length === 0) commentsWrap.innerHTML += '<p>Пока нет комментариев.</p>';
-                else {
-                    for (const c of comments) {
-                        let nick = 'Пользователь';
-                        if (c.author_id) {
-                            const { data: p } = await window.db.from('profiles').select('nickname').eq('id', c.author_id).maybeSingle();
-                            if (p && p.nickname) nick = p.nickname;
-                        }
-                        const cm = document.createElement('div'); cm.className = 'comment';
-                        cm.innerHTML = '<div class="comment-meta">' + escapeHtml(nick) + ' | ' + new Date(c.created_at).toLocaleString() + '</div><div>' + escapeHtml(c.body) + '</div>';
-                        commentsWrap.appendChild(cm);
-                    }
-                }
-                view.appendChild(commentsWrap);
+                const author = (thread.profiles && thread.profiles.nickname) ? thread.profiles.nickname : thread.author_id || 'Пользователь';
+                const threadHtml = '<div class="forum-thread-card">' +
+                                   '<div class="forum-thread-actions"><div><h3>' + escapeHtml(thread.title) + '</h3>' +
+                                   '<div class="forum-thread-meta">Автор: ' + escapeHtml(author) + ' | ' + new Date(thread.created_at).toLocaleString() + '</div></div>' +
+                                   '<button class="auth-btn-secondary" onclick="window.closeThreadView()">Назад к списку</button></div>' +
+                                   '<div class="forum-thread-body">' + escapeHtml(thread.body) + '</div>' +
+                                   '</div>';
+                view.innerHTML = threadHtml;
 
-                // Форма комментирования для авторизованных
+                const commentSection = document.createElement('div');
+                commentSection.className = 'forum-comments-list';
+                commentSection.innerHTML = '<h4>Комментарии</h4>';
+                const { data: comments, error: commentError } = await window.db.from('forum_comments').select('*,profiles(nickname)').eq('thread_id', id).order('created_at', { ascending: true });
+                if (commentError) { console.error(commentError); commentSection.innerHTML += '<p>Ошибка загрузки комментариев.</p>'; }
+                else if (!comments || comments.length === 0) {
+                    commentSection.innerHTML += '<p>Пока нет комментариев.</p>';
+                } else {
+                    comments.forEach(c => {
+                        const nick = (c.profiles && c.profiles.nickname) ? c.profiles.nickname : c.author_id || 'Пользователь';
+                        const cm = document.createElement('div'); cm.className = 'forum-comment';
+                        cm.innerHTML = '<div class="forum-comment-meta">' + escapeHtml(nick) + ' | ' + new Date(c.created_at).toLocaleString() + '</div>' +
+                                       '<div>' + escapeHtml(c.body) + '</div>';
+                        commentSection.appendChild(cm);
+                    });
+                }
+                view.appendChild(commentSection);
+
                 const { data: { session } } = await window.db.auth.getSession();
                 if (session) {
                     const commentForm = document.createElement('div');
-                    commentForm.style.marginTop = '8px';
-                    commentForm.innerHTML = '<textarea id="comment-body-'+id+'" rows="3" placeholder="Ваш комментарий"></textarea><button class="auth-btn-primary" onclick="processForumComment(\''+id+'\')">Отправить</button>';
+                    commentForm.style.marginTop = '12px';
+                    commentForm.innerHTML = '<textarea id="comment-body-'+id+'" rows="3" placeholder="Ваш комментарий"></textarea><button class="auth-btn-primary" onclick="window.processForumComment(\''+id+'\')">Отправить</button>';
                     view.appendChild(commentForm);
                 } else {
-                    const info = document.createElement('div'); info.style.marginTop = '8px'; info.innerHTML = '<p>Войдите, чтобы оставить комментарий.</p>';
+                    const info = document.createElement('div'); info.style.marginTop = '12px'; info.innerHTML = '<p>Войдите, чтобы оставить комментарий.</p>';
                     view.appendChild(info);
                 }
             }
