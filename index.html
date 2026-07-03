@@ -350,7 +350,11 @@
     .comment { border-top: 1px dashed #e6eef6; padding: 8px 0; }
     .comment-meta { font-size: 12px; color: #666; }
     .forum-form input, .forum-form textarea { width: 100%; padding: 8px; border: 1px solid #b7c8d6; border-radius: 3px; box-sizing: border-box; font-family: Verdana; }
+    .forum-form textarea { resize: none; }
     .forum-form button { margin-top: 8px; }
+    .emoji-btn { background: transparent; border: 1px solid #b7c8d6; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    .emoji-picker { background: white; border: 1px solid #b7c8d6; padding: 6px; border-radius: 4px; display: none; max-width: 320px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+    .emoji-picker button { background: none; border: none; cursor: pointer; font-size: 18px; padding: 4px; }
     </style>
 </head>
 <body>
@@ -483,8 +487,16 @@
             <div style="margin-top:12px;">
                 <div id="forum-create" style="margin-bottom:16px; display:none;" class="forum-form">
                     <input id="forum-title" placeholder="Заголовок" />
-                    <textarea id="forum-body" rows="5" placeholder="Текст темы" style="margin-top:8px;"></textarea>
-                    <button class="auth-btn-primary" onclick="processForumPost()">Создать тему</button>
+                    <div style="margin-top:8px;">
+                        <textarea id="forum-body" rows="5" placeholder="Текст темы"></textarea>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+                        <button type="button" class="emoji-btn" id="emoji-toggle" onclick="toggleEmojiPicker()">😀</button>
+                        <div id="emoji-picker" class="emoji-picker" aria-hidden="true"></div>
+                        <div style="flex:1"></div>
+                        <button class="auth-btn-primary" onclick="processForumPost()">Создать тему</button>
+                    </div>
+                    <div id="forum-status" style="margin-top:8px; font-size:13px; color:#333;"></div>
                 </div>
                 <div id="forum-list">Загрузка...</div>
                 <div id="forum-thread-view" style="display:none; margin-top:12px;"></div>
@@ -882,19 +894,27 @@
             }
 
             async function processForumPost() {
-                const title = document.getElementById('forum-title').value.trim();
-                const body = document.getElementById('forum-body').value.trim();
-                const msgEl = document.getElementById('forum-list');
-                if (!title || !body) { if (msgEl) msgEl.textContent = 'Заполните заголовок и текст.'; return; }
-                const { data: { session } } = await window.db.auth.getSession();
-                if (!session) { if (msgEl) msgEl.textContent = 'Требуется вход.'; return; }
-                const { data, error } = await window.db.from('forum_threads').insert([{ title, body, author_id: session.user.id }]).select().maybeSingle();
-                if (error) { if (msgEl) msgEl.textContent = 'Ошибка создания темы.'; console.error(error); return; }
-                // Очистим поля и откроем тему
-                document.getElementById('forum-title').value = '';
-                document.getElementById('forum-body').value = '';
-                await loadForum();
-                if (data && data.id) openThread(data.id);
+                const statusEl = document.getElementById('forum-status');
+                try {
+                    const title = document.getElementById('forum-title').value.trim();
+                    const body = document.getElementById('forum-body').value.trim();
+                    if (!title || !body) { if (statusEl) { statusEl.style.color = '#c0392b'; statusEl.textContent = 'Заполните заголовок и текст.'; } return; }
+                    const sessionResp = await window.db.auth.getSession();
+                    const session = sessionResp && sessionResp.data ? sessionResp.data.session : null;
+                    if (!session) { if (statusEl) { statusEl.style.color = '#c0392b'; statusEl.textContent = 'Требуется вход.'; } return; }
+                    if (statusEl) { statusEl.style.color = '#2b6b9e'; statusEl.textContent = 'Создаём тему...'; }
+                    const { data, error } = await window.db.from('forum_threads').insert([{ title, body, author_id: session.user.id }]).select().maybeSingle();
+                    if (error) { if (statusEl) { statusEl.style.color = '#c0392b'; statusEl.textContent = 'Ошибка создания темы: ' + (error.message || ''); } console.error(error); return; }
+                    // Очистим поля и откроем тему
+                    document.getElementById('forum-title').value = '';
+                    document.getElementById('forum-body').value = '';
+                    if (statusEl) { statusEl.style.color = 'green'; statusEl.textContent = 'Тема создана.'; }
+                    await loadForum();
+                    if (data && data.id) openThread(data.id);
+                } catch (err) {
+                    if (statusEl) { statusEl.style.color = '#c0392b'; statusEl.textContent = 'Ошибка: ' + (err.message || err); }
+                    console.error(err);
+                }
             }
 
             async function processForumComment(threadId) {
@@ -918,6 +938,37 @@
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#039;');
+            }
+
+            // --- Emoji picker ---
+            const EMOJIS = ['😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','😘','😎','🤔','😅','😇','👍','👎','🙌','🎉','🔥','💬','🤖','🧠','🎮'];
+            function toggleEmojiPicker() {
+                const picker = document.getElementById('emoji-picker');
+                if (!picker) return;
+                if (picker.style.display === 'block') { picker.style.display = 'none'; picker.setAttribute('aria-hidden','true'); }
+                else { renderEmojiPicker(); picker.style.display = 'block'; picker.setAttribute('aria-hidden','false'); }
+            }
+
+            function renderEmojiPicker() {
+                const picker = document.getElementById('emoji-picker');
+                if (!picker) return;
+                picker.innerHTML = '';
+                EMOJIS.forEach(e => {
+                    const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = e; btn.onclick = () => insertEmoji(e); picker.appendChild(btn);
+                });
+            }
+
+            function insertEmoji(emoji) {
+                const ta = document.getElementById('forum-body');
+                if (!ta) return;
+                const start = ta.selectionStart || 0;
+                const end = ta.selectionEnd || 0;
+                const before = ta.value.substring(0, start);
+                const after = ta.value.substring(end);
+                ta.value = before + emoji + after;
+                const pos = start + emoji.length;
+                ta.selectionStart = ta.selectionEnd = pos;
+                ta.focus();
             }
         }
     } catch(err) {
